@@ -70,74 +70,90 @@ scanUrlButton.addEventListener('click', () => {
 });
 
 // Scanning Functions
-async function scanFile(fileName) {
-    showLoading(`Scanning file: ${fileName}`);
+async function scanFile(file) {
     try {
-        const file = fileInput.files[0];
-        if (!file) {
-            throw new Error('No file selected');
-        }
-
         const formData = new FormData();
         formData.append('file', file);
 
-        console.log('Sending file for scanning:', {
-            name: file.name,
-            size: file.size,
-            type: file.type
-        });
+        // Show loading state
+        updateResults('Uploading file for scanning...', 'loading');
 
-        const response = await fetch(`${API_URL}/scan/file`, {
+        // First request - Submit file for scanning
+        const response = await fetch('/api/scan-file', {
             method: 'POST',
             body: formData
         });
 
-        if (!response.ok) {
-            const errorData = await response.text();
-            console.error('Server response:', errorData);
-            throw new Error('Failed to scan file: ' + (errorData || response.statusText));
-        }
-
         const data = await response.json();
-        console.log('Scan results received:', data);
-
-        if (!data || typeof data.positives === 'undefined') {
-            console.error('Invalid scan results:', data);
-            throw new Error('Invalid response from server');
+        
+        if (data.error) {
+            throw new Error(data.error);
         }
 
-        // Process scan results
-        const detectedThreats = data.scans ? 
-            Object.entries(data.scans)
-                .filter(([_, result]) => result.detected)
-                .map(([scanner, result]) => ({
-                    scanner,
-                    threat: result.result,
-                    details: result.detail || 'No additional details'
-                })) : [];
+        if (data.status === 'pending') {
+            // Show pending status
+            updateResults('File submitted. Checking results...', 'loading');
+            
+            // Start polling for results
+            await pollScanResults(data.scan_id);
+        }
 
-        displayResults({
-            fileName: fileName,
-            status: detectedThreats.length === 0 ? 'safe' : 'suspicious',
-            details: {
-                threats: detectedThreats.map(t => `${t.scanner}: ${t.threat}`),
-                scanTime: new Date().toLocaleTimeString(),
-                scanDate: data.scan_date || new Date().toISOString(),
-                totalScanners: data.total || 0,
-                positiveScanners: detectedThreats.length,
-                additionalInfo: {
-                    'File Type': data.type || file.type || 'Unknown',
-                    'File Size': formatFileSize(file.size),
-                    'MD5 Hash': data.md5 || 'N/A',
-                    'SHA-1 Hash': data.sha1 || 'N/A',
-                    'SHA-256 Hash': data.sha256 || 'N/A',
-                    'Scan ID': data.scan_id || 'N/A'
-                }
-            }
-        });
     } catch (error) {
-        console.error('Scan error:', error);
-        showError(`Error scanning file: ${error.message}`);
+        console.error('Error scanning file:', error);
+        updateResults(`Error scanning file: ${error.message}`, 'error');
+    }
+}
+
+async function pollScanResults(scanId) {
+    try {
+        let attempts = 0;
+        const maxAttempts = 10; // Try for about 50 seconds (10 attempts * 5 second interval)
+
+        const checkResults = async () => {
+            if (attempts >= maxAttempts) {
+                updateResults('Scan is taking longer than expected. Please check back later.', 'warning');
+                return;
+            }
+
+            const response = await fetch(`/api/scan-results/${scanId}`);
+            const data = await response.json();
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            if (data.status === 'pending') {
+                attempts++;
+                updateResults('Scan in progress... Please wait.', 'loading');
+                setTimeout(checkResults, 5000); // Check again in 5 seconds
+                return;
+            }
+
+            // We have results
+            const threatLevel = data.positives > 0 ? 'danger' : 'success';
+            const status = data.positives > 0 ? 'Threats detected!' : 'File is safe';
+            
+            const resultHtml = `
+                <h3 class="${threatLevel}">${status}</h3>
+                <p>Detection Rate: ${data.positives}/${data.total} scanners</p>
+                <p>Scan Date: ${data.scan_date}</p>
+                <p>File Hashes:</p>
+                <ul>
+                    <li>MD5: ${data.md5}</li>
+                    <li>SHA256: ${data.sha256}</li>
+                </ul>
+                <p><a href="${data.permalink}" target="_blank">View Full Report</a></p>
+            `;
+
+            updateResults(resultHtml, threatLevel);
+        };
+
+        // Start checking
+        await checkResults();
+
+    } catch (error) {
+        console.error('Error checking scan results:', error);
+        updateResults(`Error checking results: ${error.message}`, 'error');
     }
 }
 

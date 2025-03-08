@@ -26,7 +26,7 @@ app.get('/', (req, res) => {
 });
 
 // VirusTotal configuration
-const VIRUSTOTAL_API_KEY = '651a7355320ff34e2288ef9f59ad7111606cd9ded1f6500c01e4afed281c6d03';
+const VIRUSTOTAL_API_KEY = process.env.VIRUSTOTAL_API_KEY;
 const VIRUSTOTAL_API_URL = 'www.virustotal.com';
 
 // Helper function to make HTTPS requests
@@ -81,87 +81,71 @@ function makeRequest(options, postData) {
 // Handler function for file scanning
 async function handleFileScan(req, res) {
     try {
-        if (!req.file) {
-            throw new Error('No file uploaded');
+        const file = req.file;
+        if (!file) {
+            return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        console.log('File received:', {
-            name: req.file.originalname,
-            size: req.file.size,
-            type: req.file.mimetype
-        });
+        console.log('File received:', file.originalname, 'Size:', file.size);
 
+        // First, upload the file
         const formData = new FormData();
-        formData.append('apikey', VIRUSTOTAL_API_KEY);
-        formData.append('file', req.file.buffer, {
-            filename: req.file.originalname,
-            contentType: req.file.mimetype
-        });
+        formData.append('file', file.buffer, file.originalname);
 
-        const options = {
-            hostname: VIRUSTOTAL_API_URL,
-            path: '/vtapi/v2/file/scan',
+        const uploadResponse = await makeRequest('https://www.virustotal.com/vtapi/v2/file/scan', {
             method: 'POST',
+            body: formData,
             headers: {
-                ...formData.getHeaders()
+                'apikey': process.env.VIRUSTOTAL_API_KEY
             }
-        };
-
-        console.log('Uploading file to VirusTotal...');
-        const uploadResult = await makeRequest(options, formData);
-        console.log('Upload result:', uploadResult);
-
-        if (!uploadResult || !uploadResult.scan_id) {
-            console.error('Invalid VirusTotal response:', uploadResult);
-            throw new Error('Invalid response from VirusTotal API');
-        }
-
-        // Wait for scan to complete
-        console.log('Waiting for scan to complete...');
-        await new Promise(resolve => setTimeout(resolve, 15000));
-
-        // Get scan results
-        console.log('Fetching scan results for scan_id:', uploadResult.scan_id);
-        const reportOptions = {
-            hostname: VIRUSTOTAL_API_URL,
-            path: `/vtapi/v2/file/report?apikey=${VIRUSTOTAL_API_KEY}&resource=${uploadResult.scan_id}`,
-            method: 'GET'
-        };
-
-        const report = await makeRequest(reportOptions);
-        if (!report || report.response_code !== 1) {
-            console.error('Invalid scan report:', report);
-            throw new Error('Failed to get valid scan results');
-        }
-
-        // Transform the report data
-        const transformedReport = {
-            scan_id: report.scan_id,
-            scan_date: report.scan_date,
-            positives: report.positives,
-            total: report.total,
-            scans: report.scans,
-            md5: report.md5,
-            sha1: report.sha1,
-            sha256: report.sha256,
-            type: report.type || req.file.mimetype,
-            size: req.file.size
-        };
-
-        console.log('Scan completed successfully:', {
-            positives: transformedReport.positives,
-            total: transformedReport.total
         });
 
-        res.json(transformedReport);
+        if (!uploadResponse.scan_id) {
+            throw new Error('Failed to get scan ID from VirusTotal');
+        }
+
+        // Return the scan ID immediately
+        res.json({
+            status: 'pending',
+            scan_id: uploadResponse.scan_id,
+            message: 'File submitted for scanning. Please check results in a few moments.'
+        });
+
     } catch (error) {
-        console.error('Error in file scan:', error);
-        res.status(500).json({ 
-            error: error.message,
-            details: error.stack
-        });
+        console.error('Error scanning file:', error);
+        res.status(500).json({ error: 'Failed to scan file: ' + error.message });
     }
 }
+
+// Add new endpoint to check results
+app.get('/api/scan-results/:scanId', async (req, res) => {
+    try {
+        const scanId = req.params.scanId;
+        const reportUrl = `https://www.virustotal.com/vtapi/v2/file/report?apikey=${process.env.VIRUSTOTAL_API_KEY}&resource=${scanId}`;
+        
+        const reportResponse = await makeRequest(reportUrl);
+
+        if (reportResponse.response_code === 0) {
+            return res.json({ status: 'pending', message: 'Scan in progress' });
+        }
+
+        const results = {
+            scan_id: reportResponse.scan_id,
+            scan_date: reportResponse.scan_date,
+            positives: reportResponse.positives,
+            total: reportResponse.total,
+            sha256: reportResponse.sha256,
+            md5: reportResponse.md5,
+            permalink: reportResponse.permalink
+        };
+
+        res.json(results);
+
+    } catch (error) {
+        console.error('Error getting scan results:', error);
+        res.status(500).json({ error: 'Failed to get scan results: ' + error.message });
+    }
+});
 
 // Handler function for URL scanning
 async function handleUrlScan(req, res) {
