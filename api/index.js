@@ -40,18 +40,20 @@ function makeRequest(urlOrOptions, options = {}) {
                 hostname: url.hostname,
                 path: url.pathname + url.search,
                 method: options.method || 'GET',
-                headers: options.headers || {}
+                headers: {
+                    'apikey': process.env.VIRUSTOTAL_API_KEY,
+                    ...options.headers
+                }
             };
         } else {
-            requestOptions = urlOrOptions;
+            requestOptions = {
+                ...urlOrOptions,
+                headers: {
+                    'apikey': process.env.VIRUSTOTAL_API_KEY,
+                    ...urlOrOptions.headers
+                }
+            };
         }
-
-        // Add default headers
-        requestOptions.headers = {
-            'User-Agent': 'SurakshaMitra-Scanner',
-            'Accept': 'application/json',
-            ...requestOptions.headers
-        };
 
         console.log('Making request to:', requestOptions.hostname + requestOptions.path);
         
@@ -60,12 +62,16 @@ function makeRequest(urlOrOptions, options = {}) {
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
                 try {
+                    if (data.trim() === '') {
+                        reject(new Error('Empty response from server'));
+                        return;
+                    }
                     const jsonData = JSON.parse(data);
                     console.log('Response received:', jsonData);
                     resolve(jsonData);
                 } catch (e) {
                     console.error('Failed to parse response:', data);
-                    reject(new Error('Invalid response from server'));
+                    reject(new Error('Invalid response from server: ' + data));
                 }
             });
         });
@@ -79,7 +85,7 @@ function makeRequest(urlOrOptions, options = {}) {
             if (options.body instanceof FormData) {
                 options.body.pipe(req);
             } else {
-                req.write(options.body);
+                req.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body));
                 req.end();
             }
         } else {
@@ -102,15 +108,18 @@ async function handleFileScan(req, res) {
         const formData = new FormData();
         formData.append('file', file.buffer, file.originalname);
 
-        const uploadResponse = await makeRequest('https://www.virustotal.com/vtapi/v2/file/scan', {
+        const scanOptions = {
+            hostname: VIRUSTOTAL_API_URL,
+            path: '/vtapi/v2/file/scan',
             method: 'POST',
-            body: formData,
             headers: {
-                'apikey': process.env.VIRUSTOTAL_API_KEY
+                ...formData.getHeaders()
             }
-        });
+        };
 
-        if (!uploadResponse.scan_id) {
+        const uploadResponse = await makeRequest(scanOptions, { body: formData });
+
+        if (!uploadResponse || !uploadResponse.scan_id) {
             throw new Error('Failed to get scan ID from VirusTotal');
         }
 
@@ -147,7 +156,6 @@ async function handleUrlScan(req, res) {
 
         // First, submit URL for scanning
         const formData = new FormData();
-        formData.append('apikey', process.env.VIRUSTOTAL_API_KEY);
         formData.append('url', url);
 
         const scanOptions = {
@@ -159,8 +167,9 @@ async function handleUrlScan(req, res) {
             }
         };
 
-        const scanResult = await makeRequest(scanOptions, formData);
-        if (!scanResult.scan_id) {
+        const scanResult = await makeRequest(scanOptions, { body: formData });
+        
+        if (!scanResult || !scanResult.scan_id) {
             throw new Error('Failed to get scan ID from VirusTotal');
         }
 

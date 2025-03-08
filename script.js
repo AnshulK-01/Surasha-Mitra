@@ -95,12 +95,12 @@ async function scanFile(file) {
             body: formData
         });
 
-        if (!response.ok) {
-            throw new Error('Failed to scan file: ' + (await response.text()));
-        }
-
         const data = await response.json();
         
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to scan file');
+        }
+
         if (data.error) {
             throw new Error(data.error);
         }
@@ -180,12 +180,12 @@ async function scanUrl(url) {
             body: JSON.stringify({ url })
         });
 
+        const data = await response.json();
+
         if (!response.ok) {
-            throw new Error('Failed to scan URL: ' + (await response.text()));
+            throw new Error(data.error || 'Failed to scan URL');
         }
 
-        const data = await response.json();
-        
         if (data.error) {
             throw new Error(data.error);
         }
