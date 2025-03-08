@@ -152,14 +152,15 @@ async function handleUrlScan(req, res) {
     try {
         const { url } = req.body;
         if (!url) {
-            throw new Error('No URL provided');
+            return res.status(400).json({ error: 'No URL provided' });
         }
 
+        // First, submit URL for scanning
         const formData = new FormData();
-        formData.append('apikey', VIRUSTOTAL_API_KEY);
+        formData.append('apikey', process.env.VIRUSTOTAL_API_KEY);
         formData.append('url', url);
 
-        const options = {
+        const scanOptions = {
             hostname: VIRUSTOTAL_API_URL,
             path: '/vtapi/v2/url/scan',
             method: 'POST',
@@ -168,28 +169,46 @@ async function handleUrlScan(req, res) {
             }
         };
 
-        const scanResult = await makeRequest(options, formData);
-        
-        // Wait for scan to complete
-        await new Promise(resolve => setTimeout(resolve, 15000));
+        const scanResult = await makeRequest(scanOptions, formData);
+        if (!scanResult.scan_id) {
+            throw new Error('Failed to get scan ID from VirusTotal');
+        }
 
-        // Get scan results
+        // Return scan ID immediately
+        res.json({
+            status: 'pending',
+            scan_id: scanResult.scan_id,
+            message: 'URL submitted for scanning'
+        });
+
+    } catch (error) {
+        console.error('Error in URL scan:', error);
+        res.status(500).json({ error: error.message });
+    }
+}
+
+// Add endpoint to check URL scan results
+app.get('/api/url-results/:scanId', async (req, res) => {
+    try {
+        const scanId = req.params.scanId;
         const reportOptions = {
             hostname: VIRUSTOTAL_API_URL,
-            path: `/vtapi/v2/url/report?apikey=${VIRUSTOTAL_API_KEY}&resource=${scanResult.scan_id}`,
+            path: `/vtapi/v2/url/report?apikey=${process.env.VIRUSTOTAL_API_KEY}&resource=${scanId}`,
             method: 'GET'
         };
 
         const report = await makeRequest(reportOptions);
+        
+        if (report.response_code === 0) {
+            return res.json({ status: 'pending', message: 'Scan in progress' });
+        }
+
         res.json(report);
     } catch (error) {
-        console.error('Error in URL scan:', error);
-        res.status(500).json({ 
-            error: error.message,
-            details: error.stack
-        });
+        console.error('Error getting URL scan results:', error);
+        res.status(500).json({ error: 'Failed to get scan results: ' + error.message });
     }
-}
+});
 
 // Setup routes
 app.post('/api/scan/file', upload.single('file'), handleFileScan);

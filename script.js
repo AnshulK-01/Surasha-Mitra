@@ -1,7 +1,5 @@
 // API Configuration
-const API_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:3002/api'
-    : `${window.location.origin}/api`;  // Use origin in production
+const API_URL = '/api';  // Simplified API URL
 
 // DOM Elements
 const fileInput = document.getElementById('fileInput');
@@ -70,8 +68,13 @@ scanUrlButton.addEventListener('click', () => {
 });
 
 // Scanning Functions
-async function scanFile(file) {
+async function scanFile(fileName) {
     try {
+        const file = fileInput.files[0];
+        if (!file) {
+            throw new Error('No file selected');
+        }
+
         const formData = new FormData();
         formData.append('file', file);
 
@@ -79,10 +82,15 @@ async function scanFile(file) {
         updateResults('Uploading file for scanning...', 'loading');
 
         // First request - Submit file for scanning
-        const response = await fetch('/api/scan-file', {
+        const response = await fetch(`${API_URL}/scan/file`, {
             method: 'POST',
             body: formData
         });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to scan file');
+        }
 
         const data = await response.json();
         
@@ -168,10 +176,15 @@ async function scanUrl(url) {
             body: JSON.stringify({ url })
         });
 
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to scan URL');
+        }
+
         const data = await response.json();
         
-        if (!response.ok) {
-            throw new Error(data.error || 'Failed to scan URL');
+        if (data.error) {
+            throw new Error(data.error);
         }
 
         displayResults({
@@ -184,14 +197,12 @@ async function scanUrl(url) {
                         .map(([scanner, result]) => `${scanner}: ${result.result}`) : [],
                 scanTime: new Date().toLocaleTimeString(),
                 scanDate: data.scan_date,
-                totalScanners: data.total,
-                positiveScanners: data.positives,
+                totalScanners: data.total || 0,
+                positiveScanners: data.positives || 0,
                 additionalInfo: {
-                    'Scan ID': data.resource || 'N/A',
-                    'Scan Date': new Date(data.scan_date).toLocaleString() || 'N/A',
-                    'URL': data.url || url,
-                    'Response Code': data.response_code || 'N/A',
-                    'Categories': data.categories ? data.categories.join(', ') : 'N/A'
+                    'Scan ID': data.scan_id || 'N/A',
+                    'Scan Date': data.scan_date ? new Date(data.scan_date).toLocaleString() : 'N/A',
+                    'URL': data.url || url
                 }
             }
         });
