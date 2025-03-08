@@ -29,67 +29,108 @@ app.get('/', (req, res) => {
 const VIRUSTOTAL_API_KEY = process.env.VIRUSTOTAL_API_KEY;
 const VIRUSTOTAL_API_URL = 'www.virustotal.com';
 
+// Rate limiting configuration
+const RATE_LIMIT = {
+    requestsPerMinute: 4,
+    requests: [],
+    cleanupInterval: null
+};
+
+// Helper function to check rate limit
+function checkRateLimit() {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000; // 1 minute ago
+    
+    // Clean up old requests
+    RATE_LIMIT.requests = RATE_LIMIT.requests.filter(time => time > oneMinuteAgo);
+    
+    // Check if we're within limits
+    if (RATE_LIMIT.requests.length >= RATE_LIMIT.requestsPerMinute) {
+        const oldestRequest = RATE_LIMIT.requests[0];
+        const timeToWait = oldestRequest - oneMinuteAgo;
+        throw new Error(`Rate limit exceeded. Please wait ${Math.ceil(timeToWait / 1000)} seconds before trying again.`);
+    }
+    
+    // Add current request
+    RATE_LIMIT.requests.push(now);
+}
+
+// Helper function to validate API key
+function validateApiKey() {
+    if (!process.env.VIRUSTOTAL_API_KEY) {
+        throw new Error('VirusTotal API key is not configured');
+    }
+}
+
 // Helper function to make HTTPS requests
 function makeRequest(urlOrOptions, options = {}) {
     return new Promise((resolve, reject) => {
-        let requestOptions = {};
-        
-        if (typeof urlOrOptions === 'string') {
-            const url = new URL(urlOrOptions);
-            requestOptions = {
-                hostname: url.hostname,
-                path: url.pathname + url.search,
-                method: options.method || 'GET',
-                headers: {
-                    'apikey': process.env.VIRUSTOTAL_API_KEY,
-                    ...options.headers
-                }
-            };
-        } else {
-            requestOptions = {
-                ...urlOrOptions,
-                headers: {
-                    'apikey': process.env.VIRUSTOTAL_API_KEY,
-                    ...urlOrOptions.headers
-                }
-            };
-        }
-
-        console.log('Making request to:', requestOptions.hostname + requestOptions.path);
-        
-        const req = https.request(requestOptions, (res) => {
-            let data = '';
-            res.on('data', (chunk) => data += chunk);
-            res.on('end', () => {
-                try {
-                    if (data.trim() === '') {
-                        reject(new Error('Empty response from server'));
-                        return;
+        try {
+            validateApiKey();
+            checkRateLimit();
+            
+            let requestOptions = {};
+            
+            if (typeof urlOrOptions === 'string') {
+                const url = new URL(urlOrOptions);
+                requestOptions = {
+                    hostname: url.hostname,
+                    path: url.pathname + url.search,
+                    method: options.method || 'GET',
+                    headers: {
+                        'apikey': process.env.VIRUSTOTAL_API_KEY,
+                        ...options.headers
                     }
-                    const jsonData = JSON.parse(data);
-                    console.log('Response received:', jsonData);
-                    resolve(jsonData);
-                } catch (e) {
-                    console.error('Failed to parse response:', data);
-                    reject(new Error('Invalid response from server: ' + data));
-                }
-            });
-        });
-
-        req.on('error', (error) => {
-            console.error('Request error:', error);
-            reject(error);
-        });
-
-        if (options.body) {
-            if (options.body instanceof FormData) {
-                options.body.pipe(req);
+                };
             } else {
-                req.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body));
+                requestOptions = {
+                    ...urlOrOptions,
+                    headers: {
+                        'apikey': process.env.VIRUSTOTAL_API_KEY,
+                        ...urlOrOptions.headers
+                    }
+                };
+            }
+
+            console.log('Making request to:', requestOptions.hostname + requestOptions.path);
+            
+            const req = https.request(requestOptions, (res) => {
+                let data = '';
+                res.on('data', (chunk) => data += chunk);
+                res.on('end', () => {
+                    try {
+                        if (data.trim() === '') {
+                            reject(new Error('Empty response from server'));
+                            return;
+                        }
+                        const jsonData = JSON.parse(data);
+                        console.log('Response received:', jsonData);
+                        resolve(jsonData);
+                    } catch (e) {
+                        console.error('Failed to parse response:', data);
+                        reject(new Error('Invalid response from server: ' + data));
+                    }
+                });
+            });
+
+            req.on('error', (error) => {
+                console.error('Request error:', error);
+                reject(error);
+            });
+
+            if (options.body) {
+                if (options.body instanceof FormData) {
+                    options.body.pipe(req);
+                } else {
+                    req.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body));
+                    req.end();
+                }
+            } else {
                 req.end();
             }
-        } else {
-            req.end();
+        } catch (error) {
+            console.error('Error in makeRequest:', error);
+            reject(error);
         }
     });
 }
@@ -103,6 +144,23 @@ async function handleFileScan(req, res) {
         }
 
         console.log('File received:', file.originalname, 'Size:', file.size);
+
+        // Check rate limit before proceeding
+        try {
+            checkRateLimit();
+        } catch (error) {
+            if (error.message.includes('Rate limit')) {
+                return res.status(429).json({ 
+                    error: error.message,
+                    rateLimitInfo: {
+                        limit: RATE_LIMIT.requestsPerMinute,
+                        remaining: RATE_LIMIT.requestsPerMinute - RATE_LIMIT.requests.length,
+                        resetIn: Math.ceil((RATE_LIMIT.requests[0] - (Date.now() - 60000)) / 1000)
+                    }
+                });
+            }
+            throw error;
+        }
 
         // First, upload the file
         const formData = new FormData();

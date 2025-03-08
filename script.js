@@ -1,6 +1,20 @@
 // API Configuration
 const API_URL = '/api';  // Simplified API URL
 
+// Rate limit tracking
+const RATE_LIMIT = {
+    lastScanTime: 0,
+    minimumInterval: 15000, // 15 seconds minimum between scans
+    isWithinLimit: function() {
+        const now = Date.now();
+        const timeSinceLastScan = now - this.lastScanTime;
+        return timeSinceLastScan >= this.minimumInterval;
+    },
+    updateLastScanTime: function() {
+        this.lastScanTime = Date.now();
+    }
+};
+
 // DOM Elements
 const fileInput = document.getElementById('fileInput');
 const fileUploadArea = document.getElementById('fileUploadArea');
@@ -84,6 +98,12 @@ async function scanFile(file) {
             throw new Error('No file selected');
         }
 
+        // Check local rate limit
+        if (!RATE_LIMIT.isWithinLimit()) {
+            const waitTime = Math.ceil((RATE_LIMIT.minimumInterval - (Date.now() - RATE_LIMIT.lastScanTime)) / 1000);
+            throw new Error(`Please wait ${waitTime} seconds between scans (VirusTotal API limit: 4 requests/minute)`);
+        }
+
         const formData = new FormData();
         formData.append('file', file);
 
@@ -97,13 +117,28 @@ async function scanFile(file) {
 
         const data = await response.json();
         
+        if (response.status === 429) {
+            // Rate limit exceeded
+            const rateLimitInfo = data.rateLimitInfo;
+            throw new Error(`Rate limit exceeded. Please wait ${rateLimitInfo.resetIn} seconds. (Limit: ${rateLimitInfo.limit} scans/minute)`);
+        }
+
         if (!response.ok) {
+            if (response.status === 403) {
+                throw new Error('API key is invalid or disabled. Please contact support.');
+            }
             throw new Error(data.error || 'Failed to scan file');
         }
 
         if (data.error) {
+            if (data.error.includes('API key')) {
+                throw new Error('API key error: Please make sure your VirusTotal API key is valid and enabled.');
+            }
             throw new Error(data.error);
         }
+
+        // Update rate limit tracking
+        RATE_LIMIT.updateLastScanTime();
 
         if (data.status === 'pending' && data.scan_id) {
             showLoading('File submitted. Checking results...');
@@ -112,7 +147,12 @@ async function scanFile(file) {
 
     } catch (error) {
         console.error('Error scanning file:', error);
-        showError(`Error scanning file: ${error.message}`);
+        const errorMessage = error.message.includes('API key') 
+            ? 'API Key Error: The VirusTotal API key is either missing, invalid, or disabled. Please check your configuration.'
+            : error.message.includes('Rate limit')
+                ? error.message
+                : `Error scanning file: ${error.message}`;
+        showError(errorMessage);
     }
 }
 
@@ -170,8 +210,15 @@ async function pollScanResults(scanId) {
 }
 
 async function scanUrl(url) {
-    showLoading(`Scanning URL: ${url}`);
     try {
+        // Check local rate limit
+        if (!RATE_LIMIT.isWithinLimit()) {
+            const waitTime = Math.ceil((RATE_LIMIT.minimumInterval - (Date.now() - RATE_LIMIT.lastScanTime)) / 1000);
+            throw new Error(`Please wait ${waitTime} seconds between scans (VirusTotal API limit: 4 requests/minute)`);
+        }
+
+        showLoading(`Scanning URL: ${url}`);
+        
         const response = await fetch('/api/scan/url', {
             method: 'POST',
             headers: {
@@ -182,6 +229,12 @@ async function scanUrl(url) {
 
         const data = await response.json();
 
+        if (response.status === 429) {
+            // Rate limit exceeded
+            const rateLimitInfo = data.rateLimitInfo;
+            throw new Error(`Rate limit exceeded. Please wait ${rateLimitInfo.resetIn} seconds. (Limit: ${rateLimitInfo.limit} scans/minute)`);
+        }
+
         if (!response.ok) {
             throw new Error(data.error || 'Failed to scan URL');
         }
@@ -190,6 +243,9 @@ async function scanUrl(url) {
             throw new Error(data.error);
         }
 
+        // Update rate limit tracking
+        RATE_LIMIT.updateLastScanTime();
+
         if (data.status === 'pending' && data.scan_id) {
             showLoading('URL submitted. Checking results...');
             await pollUrlResults(data.scan_id);
@@ -197,7 +253,7 @@ async function scanUrl(url) {
 
     } catch (error) {
         console.error('Scan error:', error);
-        showError(`Error scanning URL: ${error.message}`);
+        showError(error.message);
     }
 }
 
