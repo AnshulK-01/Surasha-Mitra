@@ -1,0 +1,23 @@
+{
+  "name": "surakshamitra",
+  "version": "1.0.0",
+  "description": "A modern web-based security scanner that allows users to scan files and URLs for potential threats. Built with HTML, CSS, and JavaScript, powered by the VirusTotal API.",
+  "main": "api/index.js",
+  "scripts": {
+    "dev": "node api/index.js",
+    "start": "node api/index.js",
+    "build": "echo 'No build step needed'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-fileupload": "^1.4.3",
+    "form-data": "^4.0.2",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2"
+  }
+}

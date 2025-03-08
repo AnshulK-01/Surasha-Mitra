@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SurakshaMitra - File & URL Scanner</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="icon" href="https://media.tenor.com/yWrPIQYYIygAAAAi/shield.gif" type="image/x-icon">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-shield-alt"></i> SurakshaMitra</h1>
+            <p>Your trusted file and URL security scanner</p>
+        </header>
+
+        <main>
+            <div class="scan-options">
+                <div class="scan-card file-scan">
+                    <h2><i class="fas fa-file-upload"></i> File Scan</h2>
+                    <p>Upload files to check for malware and threats</p>
+                    <div class="upload-area" id="fileUploadArea">
+                        <input type="file" id="fileInput" multiple>
+                        <label for="fileInput">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <span>Drag & Drop files here or click to browse</span>
+                        </label>
+                    </div>
+                    <div id="fileList" class="file-list"></div>
+                </div>
+
+                <div class="scan-card url-scan">
+                    <h2><i class="fas fa-link"></i> URL Scan</h2>
+                    <p>Enter URLs to check for malicious content</p>
+                    <div class="url-input">
+                        <input type="url" id="urlInput" placeholder="Enter URL to scan">
+                        <button id="scanUrl">Scan URL</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="results-section">
+                <h2>Scan Results</h2>
+                <div id="scanResults" class="scan-results">
+                    <div class="placeholder">
+                        <i class="fas fa-search"></i>
+                        <p>Scan results will appear here</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="safety-section">
+                <h2><i class="fas fa-shield-alt"></i> Safety Measures</h2>
+                <div class="safety-grid">
+                    <div class="safety-card">
+                        <div class="safety-icon">
+                            <i class="fas fa-lock"></i>
+                        </div>
+                        <h3>Password Security</h3>
+                        <ul>
+                            <li>Use strong, unique passwords</li>
+                            <li>Enable two-factor authentication</li>
+                            <li>Use password managers</li>
+                            <li>Regularly change passwords</li>
+                        </ul>
+                    </div>
+
+                    <div class="safety-card">
+                        <div class="safety-icon">
+                            <i class="fas fa-network-wired"></i>
+                        </div>
+                        <h3>Network Security</h3>
+                        <ul>
+                            <li>Use secure Wi-Fi networks</li>
+                            <li>Avoid public Wi-Fi for sensitive data</li>
+                            <li>Use VPN for remote work</li>
+                            <li>Keep router firmware updated</li>
+                        </ul>
+                    </div>
+
+                    <div class="safety-card">
+                        <div class="safety-icon">
+                            <i class="fas fa-virus-slash"></i>
+                        </div>
+                        <h3>Malware Prevention</h3>
+                        <ul>
+                            <li>Keep antivirus software updated</li>
+                            <li>Scan downloads before opening</li>
+                            <li>Enable firewall protection</li>
+                            <li>Regular system security scans</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>© 2025 SurakshaMitra. All rights reserved.</p>
+            <div class="footer-credit">
+                <p>Made with <span class="heart"><i class="fas fa-heart"></i></span> by AnshulK01</p>
+                <div class="social-links">
+                    <a href="https://www.linkedin.com/in/anshul-kanswal/" target="_blank" title="LinkedIn">
+                        <i class="fab fa-linkedin"></i>
+                    </a>
+                    <a href="https://x.com/AnshulKanswal01" target="_blank" title="Twitter">
+                        <i class="fab fa-twitter"></i>
+                    </a>
+                    <a href="https://github.com/AnshulK-01" target="_blank" title="GitHub">
+                        <i class="fab fa-github"></i>
+                    </a>
+                </div>
+            </div>
+        </footer>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html> 
