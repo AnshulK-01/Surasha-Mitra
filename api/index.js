@@ -30,22 +30,32 @@ const VIRUSTOTAL_API_KEY = process.env.VIRUSTOTAL_API_KEY;
 const VIRUSTOTAL_API_URL = 'www.virustotal.com';
 
 // Helper function to make HTTPS requests
-function makeRequest(options, postData) {
-    // Add API version and proper headers
-    const defaultHeaders = {
-        'User-Agent': 'SurakshaMitra-Scanner',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json'
-    };
-
-    options.headers = {
-        ...defaultHeaders,
-        ...options.headers
-    };
-
+function makeRequest(urlOrOptions, options = {}) {
     return new Promise((resolve, reject) => {
-        console.log('Making request to:', options.hostname + options.path);
-        const req = https.request(options, (res) => {
+        let requestOptions = {};
+        
+        if (typeof urlOrOptions === 'string') {
+            const url = new URL(urlOrOptions);
+            requestOptions = {
+                hostname: url.hostname,
+                path: url.pathname + url.search,
+                method: options.method || 'GET',
+                headers: options.headers || {}
+            };
+        } else {
+            requestOptions = urlOrOptions;
+        }
+
+        // Add default headers
+        requestOptions.headers = {
+            'User-Agent': 'SurakshaMitra-Scanner',
+            'Accept': 'application/json',
+            ...requestOptions.headers
+        };
+
+        console.log('Making request to:', requestOptions.hostname + requestOptions.path);
+        
+        const req = https.request(requestOptions, (res) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
@@ -55,7 +65,7 @@ function makeRequest(options, postData) {
                     resolve(jsonData);
                 } catch (e) {
                     console.error('Failed to parse response:', data);
-                    resolve(data);
+                    reject(new Error('Invalid response from server'));
                 }
             });
         });
@@ -65,11 +75,11 @@ function makeRequest(options, postData) {
             reject(error);
         });
 
-        if (postData) {
-            if (postData instanceof FormData) {
-                postData.pipe(req);
+        if (options.body) {
+            if (options.body instanceof FormData) {
+                options.body.pipe(req);
             } else {
-                req.write(postData);
+                req.write(options.body);
                 req.end();
             }
         } else {
@@ -117,33 +127,13 @@ async function handleFileScan(req, res) {
     }
 }
 
-// Add new endpoint to check results
-app.get('/api/scan-results/:scanId', async (req, res) => {
+// Setup routes with proper error handling
+app.post('/api/scan/file', upload.single('file'), async (req, res) => {
     try {
-        const scanId = req.params.scanId;
-        const reportUrl = `https://www.virustotal.com/vtapi/v2/file/report?apikey=${process.env.VIRUSTOTAL_API_KEY}&resource=${scanId}`;
-        
-        const reportResponse = await makeRequest(reportUrl);
-
-        if (reportResponse.response_code === 0) {
-            return res.json({ status: 'pending', message: 'Scan in progress' });
-        }
-
-        const results = {
-            scan_id: reportResponse.scan_id,
-            scan_date: reportResponse.scan_date,
-            positives: reportResponse.positives,
-            total: reportResponse.total,
-            sha256: reportResponse.sha256,
-            md5: reportResponse.md5,
-            permalink: reportResponse.permalink
-        };
-
-        res.json(results);
-
+        await handleFileScan(req, res);
     } catch (error) {
-        console.error('Error getting scan results:', error);
-        res.status(500).json({ error: 'Failed to get scan results: ' + error.message });
+        console.error('Error in file scan route:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -187,18 +177,39 @@ async function handleUrlScan(req, res) {
     }
 }
 
-// Add endpoint to check URL scan results
+// Setup routes with proper error handling
+app.post('/api/scan/url', async (req, res) => {
+    try {
+        await handleUrlScan(req, res);
+    } catch (error) {
+        console.error('Error in URL scan route:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/scan-results/:scanId', async (req, res) => {
+    try {
+        const scanId = req.params.scanId;
+        const reportUrl = `https://www.virustotal.com/vtapi/v2/file/report?apikey=${process.env.VIRUSTOTAL_API_KEY}&resource=${scanId}`;
+        const report = await makeRequest(reportUrl);
+
+        if (report.response_code === 0) {
+            return res.json({ status: 'pending', message: 'Scan in progress' });
+        }
+
+        res.json(report);
+    } catch (error) {
+        console.error('Error getting scan results:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get('/api/url-results/:scanId', async (req, res) => {
     try {
         const scanId = req.params.scanId;
-        const reportOptions = {
-            hostname: VIRUSTOTAL_API_URL,
-            path: `/vtapi/v2/url/report?apikey=${process.env.VIRUSTOTAL_API_KEY}&resource=${scanId}`,
-            method: 'GET'
-        };
+        const reportUrl = `https://www.virustotal.com/vtapi/v2/url/report?apikey=${process.env.VIRUSTOTAL_API_KEY}&resource=${scanId}`;
+        const report = await makeRequest(reportUrl);
 
-        const report = await makeRequest(reportOptions);
-        
         if (report.response_code === 0) {
             return res.json({ status: 'pending', message: 'Scan in progress' });
         }
@@ -206,13 +217,9 @@ app.get('/api/url-results/:scanId', async (req, res) => {
         res.json(report);
     } catch (error) {
         console.error('Error getting URL scan results:', error);
-        res.status(500).json({ error: 'Failed to get scan results: ' + error.message });
+        res.status(500).json({ error: error.message });
     }
 });
-
-// Setup routes
-app.post('/api/scan/file', upload.single('file'), handleFileScan);
-app.post('/api/scan/url', handleUrlScan);
 
 // For Vercel serverless deployment
 module.exports = async (req, res) => {

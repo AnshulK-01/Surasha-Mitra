@@ -51,7 +51,7 @@ function handleFiles(files) {
                 <span class="file-name">${file.name}</span>
                 <span class="file-details">${fileSize} • ${fileType}</span>
             </div>
-            <button onclick="scanFile('${file.name}')">Scan</button>
+            <button onclick="scanSelectedFile('${file.name}')">Scan</button>
         `;
         fileList.appendChild(fileItem);
     });
@@ -68,9 +68,18 @@ scanUrlButton.addEventListener('click', () => {
 });
 
 // Scanning Functions
-async function scanFile(fileName) {
+async function scanSelectedFile(fileName) {
+    const files = fileInput.files;
+    const file = Array.from(files).find(f => f.name === fileName);
+    if (!file) {
+        showError('File not found. Please try uploading again.');
+        return;
+    }
+    await scanFile(file);
+}
+
+async function scanFile(file) {
     try {
-        const file = fileInput.files[0];
         if (!file) {
             throw new Error('No file selected');
         }
@@ -79,17 +88,15 @@ async function scanFile(fileName) {
         formData.append('file', file);
 
         // Show loading state
-        updateResults('Uploading file for scanning...', 'loading');
+        showLoading('Uploading file for scanning...');
 
-        // First request - Submit file for scanning
-        const response = await fetch(`${API_URL}/scan/file`, {
+        const response = await fetch('/api/scan/file', {
             method: 'POST',
             body: formData
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || 'Failed to scan file');
+            throw new Error('Failed to scan file: ' + (await response.text()));
         }
 
         const data = await response.json();
@@ -98,17 +105,14 @@ async function scanFile(fileName) {
             throw new Error(data.error);
         }
 
-        if (data.status === 'pending') {
-            // Show pending status
-            updateResults('File submitted. Checking results...', 'loading');
-            
-            // Start polling for results
+        if (data.status === 'pending' && data.scan_id) {
+            showLoading('File submitted. Checking results...');
             await pollScanResults(data.scan_id);
         }
 
     } catch (error) {
         console.error('Error scanning file:', error);
-        updateResults(`Error scanning file: ${error.message}`, 'error');
+        showError(`Error scanning file: ${error.message}`);
     }
 }
 
@@ -168,7 +172,7 @@ async function pollScanResults(scanId) {
 async function scanUrl(url) {
     showLoading(`Scanning URL: ${url}`);
     try {
-        const response = await fetch(`${API_URL}/scan/url`, {
+        const response = await fetch('/api/scan/url', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -177,8 +181,7 @@ async function scanUrl(url) {
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || 'Failed to scan URL');
+            throw new Error('Failed to scan URL: ' + (await response.text()));
         }
 
         const data = await response.json();
@@ -187,28 +190,69 @@ async function scanUrl(url) {
             throw new Error(data.error);
         }
 
-        displayResults({
-            url: url,
-            status: data.positives === 0 ? 'safe' : 'suspicious',
-            details: {
-                threats: data.positives > 0 ? 
-                    Object.entries(data.scans)
-                        .filter(([_, result]) => result.detected)
-                        .map(([scanner, result]) => `${scanner}: ${result.result}`) : [],
-                scanTime: new Date().toLocaleTimeString(),
-                scanDate: data.scan_date,
-                totalScanners: data.total || 0,
-                positiveScanners: data.positives || 0,
-                additionalInfo: {
-                    'Scan ID': data.scan_id || 'N/A',
-                    'Scan Date': data.scan_date ? new Date(data.scan_date).toLocaleString() : 'N/A',
-                    'URL': data.url || url
-                }
-            }
-        });
+        if (data.status === 'pending' && data.scan_id) {
+            showLoading('URL submitted. Checking results...');
+            await pollUrlResults(data.scan_id);
+        }
+
     } catch (error) {
         console.error('Scan error:', error);
         showError(`Error scanning URL: ${error.message}`);
+    }
+}
+
+// Add URL polling function
+async function pollUrlResults(scanId) {
+    try {
+        let attempts = 0;
+        const maxAttempts = 10;
+
+        const checkResults = async () => {
+            if (attempts >= maxAttempts) {
+                showError('Scan is taking longer than expected. Please try again later.');
+                return;
+            }
+
+            const response = await fetch(`/api/url-results/${scanId}`);
+            const data = await response.json();
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            if (data.status === 'pending') {
+                attempts++;
+                showLoading('Scan in progress... Please wait.');
+                setTimeout(checkResults, 5000);
+                return;
+            }
+
+            displayResults({
+                url: data.url,
+                status: data.positives === 0 ? 'safe' : 'suspicious',
+                details: {
+                    threats: data.positives > 0 ? 
+                        Object.entries(data.scans)
+                            .filter(([_, result]) => result.detected)
+                            .map(([scanner, result]) => `${scanner}: ${result.result}`) : [],
+                    scanTime: new Date().toLocaleTimeString(),
+                    scanDate: data.scan_date,
+                    totalScanners: data.total || 0,
+                    positiveScanners: data.positives || 0,
+                    additionalInfo: {
+                        'Scan ID': data.scan_id || 'N/A',
+                        'Scan Date': data.scan_date ? new Date(data.scan_date).toLocaleString() : 'N/A',
+                        'URL': data.url
+                    }
+                }
+            });
+        };
+
+        await checkResults();
+
+    } catch (error) {
+        console.error('Error checking URL results:', error);
+        showError(`Error checking results: ${error.message}`);
     }
 }
 
